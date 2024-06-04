@@ -1,5 +1,5 @@
 import * as brotli from "https://deno.land/x/brotli@0.1.7/mod.ts";
-import * as acme from "https://deno.land/x/acme@v0.2/acme.ts"
+//import * as acme from "https://deno.land/x/acme@v0.2/acme.ts"
 import { decode } from "https://deno.land/std@0.192.0/encoding/base64.ts"; // basic auth
 import { typeByExtension } from "https://deno.land/std@0.200.0/media_types/type_by_extension.ts";
 import { db } from "https://deno.land/std@0.200.0/media_types/_db.ts"; // list of compressible content-types
@@ -60,391 +60,151 @@ Deno.serve(async (req) => {
 */
 
 // TODO: only request from env, if no dataDir was given - prevents unnecessary `--allow-env`
-let dataDir = (Deno.env.get("HOME") || ".") + "/.config/deno-srv/"; // TODO: (macos), windows
+//let dataDir = (Deno.env.get("HOME") || ".") + "/.config/deno-srv/"; // TODO: (macos), windows
 
-export function setDataDir(newDataDir: string)
-{
-  dataDir = newDataDir;
-}
+// export function setDataDir(newDataDir: string)
+// {
+//   dataDir = newDataDir;
+// }
 
-let acmeEmail: string | undefined = undefined;
+// let acmeEmail: string | undefined = undefined;
 
-export function setAcmeEmail(newAcmeEmail: string)
-{
-  acmeEmail = newAcmeEmail;
-}
-
-
-export class TlsStore
-{
-  public servername: string; // for sni
-  public cert: string;
-  public key: string;
-
-  constructor(servername: string, cert: string, key: string)
-  {
-    this.servername = servername;
-    this.cert = cert;
-    this.key = key;
-  }
-}
+// export function setAcmeEmail(newAcmeEmail: string)
+// {
+//   acmeEmail = newAcmeEmail;
+// }
 
 
-export class TlsManager
-{
-  domainName: string;
-  store: TlsStore | null = null;
+// export class TlsStore
+// {
+//   public servername: string; // for sni
+//   public cert: string;
+//   public key: string;
 
-  // ... auto acme stuff here
-  constructor(domainName: string)
-  {
-    this.domainName = domainName;
-  }
-
-  private async fileExists(filename: string)
-  {
-    return (await Deno.stat(`${dataDir}/${filename}`)).isFile;
-  }
-
-  private async readFile(filename: string)
-  {
-    return (await Deno.readTextFile(`${dataDir}/${filename}`));
-  }
-
-  async waitForStore()
-  {
-    try
-    {
-      await Deno.mkdir(dataDir+"/", { recursive: true });
-    }
-    catch(_e){}
+//   constructor(servername: string, cert: string, key: string)
+//   {
+//     this.servername = servername;
+//     this.cert = cert;
+//     this.key = key;
+//   }
+// }
 
 
-    // first check if there is a (valid) cert available in the dataDir
-    try
-    {
-      const domainCertificate = await this.readFile(this.domainName + ".crt");
-      const domainPrivateKey = await this.readFile(this.domainName + ".pem");
+// export class TlsManager
+// {
+//   domainName: string;
+//   store: TlsStore | null = null;
 
-      this.store = new TlsStore(domainCertificate, domainPrivateKey);
-      tlsStores[this.domainName] = this.store;
-      return this.store;
-    }
-    catch(_e)
-    {
-      //console.debug("no cert for domain " + this.domainName + " - getting new cert");
-      throw new Error("NOT DOING THIS RN!");
-    }
+//   // ... auto acme stuff here
+//   constructor(domainName: string)
+//   {
+//     this.domainName = domainName;
+//   }
 
+//   private async fileExists(filename: string)
+//   {
+//     return (await Deno.stat(`${dataDir}/${filename}`)).isFile;
+//   }
 
-    let accountPublicKey;
-    let accountPrivateKey;
+//   private async readFile(filename: string)
+//   {
+//     return (await Deno.readTextFile(`${dataDir}/${filename}`));
+//   }
 
-    try
-    {
-      accountPublicKey = await this.readFile("acc.pub.pem");
-      accountPrivateKey = await this.readFile("acc.prv.pem");
-    }
-    catch(_e)
-    {
-      //console.debug("no account keys");
-    }
-
-
-    const { domainCertificate, pemAccountKeys } = // TODO: user editable directory url
-      await acme.getCertificateForDomain(this.domainName, "https://acme-staging-v02.api.letsencrypt.org/directory", //"https://acme-v02.api.letsencrypt.org/directory",
-      acmeEmail,
-      ( (accountPublicKey && accountPrivateKey) ? { pemPublicKey: accountPublicKey, pemPrivateKey: accountPrivateKey } : undefined )
-      );
-
-    if (!domainCertificate)
-    {
-      // TODO: try again later!
-      const x = "failed to get cert for domain " + this.domainName + "!";
-      console.error(x);
-      throw new Error(x);
-    }
-
-    if (!accountPublicKey && !accountPrivateKey)
-    {
-      await Deno.writeTextFile(`${dataDir}/acc.pub.pem`, pemAccountKeys.pemPublicKey);
-      await Deno.writeTextFile(`${dataDir}/acc.prv.pem`, pemAccountKeys.pemPrivateKey);
-    }
-
-    this.store = new TlsStore(domainCertificate.pemCertificate, domainCertificate.pemPrivateKey);
-    tlsStores[this.domainName] = this.store;
-    return this.store;
-  }
-}
+//   async waitForStore()
+//   {
+//     try
+//     {
+//       await Deno.mkdir(dataDir+"/", { recursive: true });
+//     }
+//     catch(_e){}
 
 
-const tlsStores: Record<string, TlsStore> = {};
+//     // first check if there is a (valid) cert available in the dataDir
+//     try
+//     {
+//       const domainCertificate = await this.readFile(this.domainName + ".crt");
+//       const domainPrivateKey = await this.readFile(this.domainName + ".pem");
+
+//       this.store = new TlsStore(domainCertificate, domainPrivateKey);
+//       tlsStores[this.domainName] = this.store;
+//       return this.store;
+//     }
+//     catch(_e)
+//     {
+//       //console.debug("no cert for domain " + this.domainName + " - getting new cert");
+//       throw new Error("NOT DOING THIS RN!");
+//     }
+
+
+//     let accountPublicKey;
+//     let accountPrivateKey;
+
+//     try
+//     {
+//       accountPublicKey = await this.readFile("acc.pub.pem");
+//       accountPrivateKey = await this.readFile("acc.prv.pem");
+//     }
+//     catch(_e)
+//     {
+//       //console.debug("no account keys");
+//     }
+
+
+//     const { domainCertificate, pemAccountKeys } = // TODO: user editable directory url
+//       await acme.getCertificateForDomain(this.domainName, "https://acme-staging-v02.api.letsencrypt.org/directory", //"https://acme-v02.api.letsencrypt.org/directory",
+//       acmeEmail,
+//       ( (accountPublicKey && accountPrivateKey) ? { pemPublicKey: accountPublicKey, pemPrivateKey: accountPrivateKey } : undefined )
+//       );
+
+//     if (!domainCertificate)
+//     {
+//       // TODO: try again later!
+//       const x = "failed to get cert for domain " + this.domainName + "!";
+//       console.error(x);
+//       throw new Error(x);
+//     }
+
+//     if (!accountPublicKey && !accountPrivateKey)
+//     {
+//       await Deno.writeTextFile(`${dataDir}/acc.pub.pem`, pemAccountKeys.pemPublicKey);
+//       await Deno.writeTextFile(`${dataDir}/acc.prv.pem`, pemAccountKeys.pemPrivateKey);
+//     }
+
+//     this.store = new TlsStore(domainCertificate.pemCertificate, domainCertificate.pemPrivateKey);
+//     tlsStores[this.domainName] = this.store;
+//     return this.store;
+//   }
+// }
+
+
+// const tlsStores: Record<string, TlsStore> = {};
 
 
 type HandlerFunction = (request: Request) => Promise<Response | null> | Response | null;
 
 
-export class Listener // TODO: refactor!
+export abstract class ListenerBase
 {
-  private static listeners: Listener[] = [];
+  protected run: boolean;
+  protected listener: Deno.Listener;
+  protected handlers: (Handler | HandlerFunction)[];
 
-  private handlers: (Handler | HandlerFunction)[];
-  private listener: Deno.Listener;
-  private isTls: boolean;
-  private hostname: string;
-  private run: boolean;
-
-  constructor(ip: string, port: number, options?: { hostname?: string, tlsStores?: TlsStore[], handlers?: (Handler | HandlerFunction)[] })
+  constructor(listener: Deno.Listener, handlers?: (Handler | HandlerFunction)[])
   {
     this.run = true;
-
-    const key = `${ip}:${port}`;
-    if (listenerManager.containsKey(key))
-      throw new Error("Listener: listener with ip + port already exists!");
-
-    this.hostname = options?.hostname || "";
-
-    this.handlers = options?.handlers || [];
-    if (options?.tlsStores)
-    {
-      const tlsStores = options.tlsStores;
-
-      //let x: Deno.ListenTlsOptions = {port:0};
-
-      if (tlsStores.length < 1)
-      {
-        throw new Error("Listener: the tlsStores array needs at least one item");
-      }
-
-      const tlsStore = tlsStores[0];
-      this.listener = Deno.listenTls({ hostname: ip, port: port, cert: tlsStore.cert, key: tlsStore.key });
-      this.isTls = true;
-    }
-    else if (options?.hostname && options?.hostname?.includes(".") && !options?.hostname.endsWith(".local")) // TODO: check for more invalid tlds
-    {
-      console.log("Using TlsManager! Waiting for acme...");
-      const tlsManager = new TlsManager(options?.hostname);
-      tlsManager.waitForStore().then((tlsStore: TlsStore) =>
-      {
-        console.log("TlsManager done! Starting listener");
-        this.listener = Deno.listenTls({ hostname: ip, port: port, cert: tlsStore.cert, key: tlsStore.key });
-        this.isTls = true;
-
-
-        // TODO: unuglify
-        //console.debug("new tls listener (acme) for", ip, port, this.isTls ? "with tls" : "no tls");
-        this.acceptLoop();
-      }).catch((e) =>
-      {
-        console.error(":(", e);
-        // TODO: ... ?
-      });
-
-      // ????? listenerManager.addHandler(options?.ip || "0.0.0.0", options?.port || 80 /*443*/, mainHandler, tlsStore);
-
-      //console.debug("... waiting for acme ...");
-      return;
-    }
-    else
-    {
-      this.listener = Deno.listen({ hostname: ip, port: port });
-      console.log(`listening on ${ip}:${port} (http)`);
-      this.isTls = false;
-    }
-
-    Listener.listeners.push(this);
-
-    //console.debug("new listener for", ip, port, this.isTls ? "with tls" : "no tls");
-
+    this.listener = listener;
+    this.handlers = handlers ?? [];
     this.acceptLoop();
   }
 
 
-  // TODO: close(): void
-
-
-  async acceptX(conn: Deno.Conn)
+  close(): void
   {
-    //console.debug("new connection", conn, conn.remoteAddr);
-
-    try
-    {
-      const requests = Deno.serveHttp(conn);
-      console.debug("new connection", conn);
-      for await (const { request, respondWith } of requests)
-      {
-        console.debug("new request from connection", request);
-
-        if (request.url.length >= 1024)
-        {
-          console.error("Request url length >= 1024");
-          respondWith(getDefaultResponseFunction(414)(request)).catch(() => null);
-          continue;
-        }
-
-        let requestHandeled = false;
-        for (const handler of this.handlers)
-        {
-          let response: Response | Promise<Response | null> | null;
-          if (typeof(handler) === "function")
-          {
-            const _handler = handler as HandlerFunction;
-            response = _handler(request);
-          }
-          else
-          {
-            const _handler = handler as Handler;
-            response = _handler.newRequest(request);
-          }
-
-          if (response instanceof Promise)
-          {
-            response = await response;
-          }
-          else
-          {
-            if (response !== null)
-            {
-              console.warn("WARNING: Handler was not async and blocked the execution!", response);
-            }
-          }
-
-          if (response === null)
-            continue;
-
-          for (const header in defaultResponseHeaders)
-            response.headers.set(header, defaultResponseHeaders[header]);
-
-          respondWith(response).catch(() => null);//.catch((reason) => { console.log("Couldn't respond to request:", reason.message) });
-          requestHandeled = true;
-          break;
-        }
-
-        if (!requestHandeled)
-        {
-          console.error("no handler found for request");
-          respondWith(getDefaultResponseFunction(400)(request)).catch(() => null);//.catch((reason) => { console.log("Couldn't respond to request with a 400 response:", reason) });;
-        }
-      }
-    }
-    catch(e)
-    {
-      console.log("Couldn't serve request:", e.message);
-      // TODO: drop connection?
-    }
-
-    //this.acceptLoop();
+    this.run = false;
+    this.listener.close();
+    // HostListener.listeners...
   }
-
-
-  //async
-  acceptLoop()
-  {
-    this.listener.accept().then(async (conn) =>
-    {
-      await this.acceptX(conn);
-      this.acceptLoop();
-    });
-
-    // while (this.run)
-    // {
-    //   console.log("START **************************");
-    //   this.acceptX(await this.listener.accept());
-    //   console.log("END   **************************");
-    // }
-  }
-
-
-  addHandler(handler: Handler | HandlerFunction)
-  {
-    this.handlers.push(handler);
-  }
-}
-
-
-export interface Tls
-{
-  cert: string;
-  key: string;
-}
-
-
-// @ts-ignore api not ready yet, use private symbol
-const { resolverSymbol } = Deno[Deno.internal];
-
-
-export class Host
-{
-  #hostname: string;
-  #tls?: Tls;
-  public handlers?: (Handler | HandlerFunction)[];
-
-  get hostname(): string { return this.#hostname; }
-  get tls() { return this.#tls; }
-
-  constructor(hostname: string, options?: { tls?: Tls, handlers?: (Handler | HandlerFunction)[] }) // if keys undefined, gets cert itself
-  {
-    this.#hostname = hostname;
-    this.#tls = options?.tls;
-    this.handlers = options?.handlers;
-
-    if (!options?.tls)
-    {
-      // TODO: use mw/acme (but only if hostname not an ip address)
-    }
-  }
-}
-
-
-export class HostListener
-{
-  private static listeners: HostListener[] = [];
-
-  private hosts: Record<string, Host> = {};//{ hostname: string, host: Host;
-  private listener: Deno.Listener;
-  private run: boolean;
-
-  public addHost(host: Host): void
-  {
-    this.hosts[host.hostname.toLowerCase()] = host;
-  }
-
-  constructor(ip: string, port: number, options?: { hosts?: Host[] })
-  {
-    this.run = true;
-
-    // const key = `${ip}:${port}`;
-    // if (listenerManager.containsKey(key))
-    //   throw new Error("Listener: listener with ip + port already exists!");
-
-    options?.hosts?.forEach((host) => this.hosts[host.hostname] = host);
-
-    const tempOpts: unknown =
-    {
-      hostname: ip,
-      port: port,
-      // @ts-ignore api not ready yet, use private symbol
-      [resolverSymbol]: (sni: string) =>
-      {
-        const host = this.hosts[sni].tls;
-        console.log("host?", host);
-        return host!;
-      },
-    };
-
-    // TODO: correctly handle non-sni connections 
-    this.listener = Deno.listenTls(<Deno.ListenTlsOptions & Deno.TlsCertifiedKeyConnectTls> tempOpts);
-    console.log(`listening on ${ip}:${port} (tls)`);
-
-    HostListener.listeners.push(this);
-
-    //console.debug("new listener for", ip, port, this.isTls ? "with tls" : "no tls");
-
-    this.acceptLoop();
-  }
-
-
-  // TODO: close(): void
 
 
   async acceptX(conn: Deno.Conn)
@@ -458,26 +218,19 @@ export class HostListener
       console.debug("new connection", conn);
       for await (const { request, respondWith } of requests)
       {
-        console.debug("new request from connection", request);
-
-        if (request.url.length >= 1024)
+        try
         {
-          console.error("Request url length >= 1024");
-          respondWith(getDefaultResponseFunction(414)(request)).catch(() => null);
-          continue;
-        }
+          console.debug("new request from connection", request);
 
-        const hostHeader = request.headers.get("host")?.trim() ?? "";
-        const hostHeader2 = hostHeader.match(/^[^:]*/)?.[0] ?? hostHeader;
-        console.log("hostHeader", hostHeader);
-        console.log("hostHeader2", hostHeader2);
-        const host = this.hosts[hostHeader2.toLowerCase()];
-        console.log("host", host);
+          if (request.url.length >= 1024)
+          {
+            console.error("Request url length >= 1024");
+            respondWith(getDefaultResponseFunction(414)(request)).catch(() => null);
+            continue;
+          }
 
-        let requestHandeled = false;
-        if (host && host.handlers)
-        {
-          for (const handler of host.handlers)
+          let requestHandeled = false;
+          for (const handler of this.handlers)
           {
             let response: Response | Promise<Response | null> | null;
             if (typeof(handler) === "function")
@@ -504,7 +257,9 @@ export class HostListener
             }
 
             if (response === null)
-              continue;
+            {
+              continue; // try next handler
+            }
 
             for (const header in defaultResponseHeaders)
               response.headers.set(header, defaultResponseHeaders[header]);
@@ -513,86 +268,66 @@ export class HostListener
             requestHandeled = true;
             break;
           }
-        }
 
-        if (!requestHandeled)
+          if (!requestHandeled)
+          {
+            console.error("no handler found for request");
+            respondWith(getDefaultResponseFunction(400)(request)).catch(() => null);//.catch((reason) => { console.log("Couldn't respond to request with a 400 response:", reason) });;
+          }
+        }
+        catch(e)
         {
-          console.error("no handler found for request");
-          respondWith(getDefaultResponseFunction(400)(request)).catch(() => null);//.catch((reason) => { console.log("Couldn't respond to request with a 400 response:", reason) });;
+          console.error("connection error", e);
+          respondWith(getDefaultResponseFunction(500)(request)).catch(() => null); // TODO: how to "respond"?
         }
       }
     }
     catch(e)
     {
-      console.log("Couldn't serve request:", e.message);
-      // TODO: drop connection?
+      console.log("failed to serve request:", e.message);
     }
-
-    //this.acceptLoop();
   }
 
 
-  //async
-  acceptLoop()
+  async acceptLoop()
   {
-    this.listener.accept().then(async (conn) =>
+    while (this.run)
     {
-      await this.acceptX(conn);
-      this.acceptLoop();
-    });
-
-    // while (this.run)
-    // {
-    //   console.log("START **************************");
-    //   this.acceptX(await this.listener.accept());
-    //   console.log("END   **************************");
-    // }
+      this.acceptX(await this.listener.accept()); // async
+    }
   }
 
 
-  // addHandler(handler: Handler | HandlerFunction)
-  // {
-  //   this.handlers.push(handler);
-  // }
+  addHandler(handler: Handler | HandlerFunction)
+  {
+    this.handlers.push(handler);
+  }
 }
 
 
-export class ListenerManager
+export class Listener extends ListenerBase // TODO: refactor!
 {
-  private listeners: Record<string, Listener>;
-
-
-  constructor()
+  constructor(options?: { ip?: string, port?: number, handlers?: (Handler | HandlerFunction)[] })
   {
-    this.listeners = {};
-  }
+    // const key = `${ip}:${port}`;
+    // if (listenerManager.containsKey(key))
+    //   throw new Error("Listener: listener with ip + port already exists!");
 
+    // this.hostname = options?.hostname || "";
 
-  contains(ip: string, port: number): boolean
-  {
-    const key = `${ip}:${port}`;
-    return this.containsKey(key);
-  }
+    const _ip = options?.ip ?? "0.0.0.0";
+    const _port = options?.port ?? 80;
 
+    const listener = Deno.listen({ hostname: _ip, port: _port });
+    console.log(`listening on ${_ip}:${_port} (http)`);
 
-  containsKey(key: string): boolean
-  {
-    return (key in this.listeners);
-  }
+    //Listener.listeners.push(this);
 
+    //console.debug("new listener for", ip, port, this.isTls ? "with tls" : "no tls");
 
-  addHandler(ip: string, port: number, handler: Handler, tlsStore?: TlsStore)
-  {
-    const key = `${ip}:${port}`;
-    if (!(key in this.listeners))
-      this.listeners[key] = new Listener(ip, port, { tlsStore });
-
-    this.listeners[key].addHandler(handler);
+    super(listener, options?.handlers);
   }
 }
-
-
-const listenerManager = new ListenerManager();
 
 
 export class Handler
@@ -749,6 +484,150 @@ export class Handler
     return this.checkSubhandlers(request);
   }
 }
+
+
+export interface Tls
+{
+  cert: string;
+  key: string;
+}
+
+
+// @ts-ignore api not ready yet, use private symbol
+const { resolverSymbol } = Deno[Deno.internal];
+
+
+export class HostHandler extends Handler
+{
+  #hostname: string;
+  #tls?: Tls;
+  // public handlers?: (Handler | HandlerFunction)[];
+
+  get hostname(): string { return this.#hostname; }
+  get tls() { return this.#tls; }
+
+
+  handleRequest(request: Request): Promise<Response | null> | Response | null
+  {
+    console.debug("HostHandler: handleRequest");
+
+    const hostHeader = request.headers.get("host")?.trim() ?? "";
+    const hostHeader2 = hostHeader.match(/^[^:]*/)?.[0] ?? hostHeader;
+
+    if (hostHeader2 !== this.#hostname)
+    {
+      console.debug("HostHandler: handleRequest: handler '" + this.#hostname + "' doesn't match '" + hostHeader2 + "'");
+      return null; // so the next handler can be called, because the host does not match!
+    }
+
+    console.debug("HostHandler: handleRequest: hostname match! checking subhandlers now");
+    return this.checkSubhandlers(request);
+  }
+
+
+  constructor(hostname: string, options?: { tls?: Tls, handlers?: (Handler | HandlerFunction)[] }) // if keys undefined, gets cert itself
+  {
+    super(options?.handlers);
+    this.checkSubHandlers = false;
+
+    this.#hostname = hostname;
+    this.#tls = options?.tls;
+
+    if (!options?.tls)
+    {
+      // TODO: use mw/acme (but only if hostname not an ip address)
+    }
+  }
+}
+
+
+export class HostListener extends ListenerBase
+{
+  // private static listeners: HostListener[] = [];
+
+  private hosts: Record<string, HostHandler> = {};//{ hostname: string, host: Host;
+  // private listener: Deno.Listener;
+  // private run: boolean;
+
+  public addHostHandler(hostHandler: HostHandler): void
+  {
+    this.hosts[hostHandler.hostname.toLowerCase()] = hostHandler;
+    this.handlers.push(hostHandler);
+  }
+
+  constructor(options?: { ip?: string, port?: number, hostHandlers?: HostHandler[] })
+  {
+    // const key = `${ip}:${port}`;
+    // if (listenerManager.containsKey(key))
+    //   throw new Error("Listener: listener with ip + port already exists!");
+
+    const _ip = options?.ip ?? "0.0.0.0";
+    const _port = options?.port ?? 443;
+
+    const tempOpts: unknown =
+    {
+      hostname: _ip,
+      port: _port,
+      // @ts-ignore api not ready yet, use private symbol
+      [resolverSymbol]: (sni: string) =>
+      {
+        const host = this.hosts[sni].tls;
+        console.log("host?", host);
+        return host!;
+      },
+    };
+
+    // TODO: correctly handle non-sni connections
+    const listener = Deno.listenTls(<Deno.ListenTlsOptions & Deno.TlsCertifiedKeyConnectTls> tempOpts);
+    console.log(`listening on ${_ip}:${_port} (https)`);
+
+    // HostListener.listeners.push(this);
+
+    //console.debug("new listener for", ip, port, this.isTls ? "with tls" : "no tls");
+
+    super(listener, options?.hostHandlers);
+    console.log("???", this.handlers.length);
+    options?.hostHandlers?.forEach((hostHandler) => this.hosts[hostHandler.hostname] = hostHandler);
+  }
+}
+
+
+// export class ListenerManager
+// {
+//   private listeners: Record<string, Listener>;
+
+
+//   constructor()
+//   {
+//     this.listeners = {};
+//   }
+
+
+//   contains(ip: string, port: number): boolean
+//   {
+//     const key = `${ip}:${port}`;
+//     return this.containsKey(key);
+//   }
+
+
+//   containsKey(key: string): boolean
+//   {
+//     return (key in this.listeners);
+//   }
+
+
+//   addHandler(ip: string, port: number, handler: Handler, tlsStore?: TlsStore)
+//   {
+//     const key = `${ip}:${port}`;
+//     if (!(key in this.listeners))
+//       this.listeners[key] = new Listener(ip, port, { tlsStore });
+
+//     this.listeners[key].addHandler(handler);
+//   }
+// }
+
+
+// const listenerManager = new ListenerManager();
 
 
 export class CheckHostnameHandler extends Handler
@@ -1361,6 +1240,34 @@ export class BasicAuthHandler extends Handler
 }
 
 
+export class HttpsRedirectHandler extends Handler
+{
+  constructor()
+  {
+    super();
+    this.checkSubHandlers = false;
+  }
+
+
+  handleRequest(request: Request): Response | null
+  {
+    const url = new URL(request.url);
+    url.protocol = "https";
+    url.port = "443";
+    console.debug("redir to", url.toString());
+
+    return new Response(null,
+      {
+        status: 301,
+        headers:
+        {
+          "location": url.toString(),
+        }
+      });
+  }
+}
+
+
 export class RedirectHandler extends Handler
 {
   private destination: string | ((request: Request) => string);
@@ -1447,7 +1354,7 @@ export const defaultResponseHeaders: Record<string, string> =
 
 export function serveFiles(path: string,
   options?: { hostname?: string, ip?: string, port?: number, cutUrlPath?: string,
-    tlsStore?: TlsStore, the404handlerFunction?: HandlerFunction })
+    the404handlerFunction?: HandlerFunction })
 {
   const mainHandler = new Handler();
   let lastHandler = mainHandler;
@@ -1471,7 +1378,7 @@ export function serveFiles(path: string,
 
 
 
-  new Listener(options?.ip || "127.0.0.1", options?.port || 6453, { handlers: [ mainHandler ] });
+  new Listener({ ip: options?.ip || "127.0.0.1", port: options?.port || 6453, handlers: [ mainHandler ] });
 
 
   // if (!options?.tlsStore &&
