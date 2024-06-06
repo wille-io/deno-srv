@@ -198,16 +198,13 @@ export abstract class ListenerBase
     this.acceptLoop();
   }
 
-
   close(): void
   {
     this.run = false;
     this.listener.close();
-    // HostListener.listeners...
   }
 
-
-  async acceptX(conn: Deno.Conn)
+  async accept(conn: Deno.Conn)
   {
     console.debug("new connection", conn, conn.remoteAddr);
 
@@ -215,7 +212,6 @@ export abstract class ListenerBase
     {
       //const con = await this.listener.accept();
       const requests = Deno.serveHttp(conn);
-      console.debug("new connection", conn);
       for await (const { request, respondWith } of requests)
       {
         try
@@ -262,7 +258,9 @@ export abstract class ListenerBase
             }
 
             for (const header in defaultResponseHeaders)
+            {
               response.headers.set(header, defaultResponseHeaders[header]);
+            }
 
             respondWith(response).catch(() => null);//.catch((reason) => { console.log("Couldn't respond to request:", reason.message) });
             requestHandeled = true;
@@ -293,7 +291,7 @@ export abstract class ListenerBase
   {
     while (this.run)
     {
-      this.acceptX(await this.listener.accept()); // async
+      this.accept(await this.listener.accept()); // async
     }
   }
 
@@ -305,25 +303,15 @@ export abstract class ListenerBase
 }
 
 
-export class Listener extends ListenerBase // TODO: refactor!
+export class HttpListener extends ListenerBase // TODO: refactor!
 {
   constructor(options?: { ip?: string, port?: number, handlers?: (Handler | HandlerFunction)[] })
   {
-    // const key = `${ip}:${port}`;
-    // if (listenerManager.containsKey(key))
-    //   throw new Error("Listener: listener with ip + port already exists!");
-
-    // this.hostname = options?.hostname || "";
-
     const _ip = options?.ip ?? "0.0.0.0";
     const _port = options?.port ?? 80;
 
     const listener = Deno.listen({ hostname: _ip, port: _port });
     console.log(`listening on ${_ip}:${_port} (http)`);
-
-    //Listener.listeners.push(this);
-
-    //console.debug("new listener for", ip, port, this.isTls ? "with tls" : "no tls");
 
     super(listener, options?.handlers);
   }
@@ -337,12 +325,10 @@ export class Handler
   protected excludeUrlPath: string | null = null;
   protected cutExcludePath = false;
 
-
   constructor(handlers?: (Handler | HandlerFunction)[])
   {
     this.handlers = handlers || [];
   }
-
 
   addHandler(handler: Handler | HandlerFunction) // adds a sub handler!
   {
@@ -353,7 +339,6 @@ export class Handler
 
     this.handlers.push(handler);
   }
-
 
   setCutExcludePath(cutExcludePath: boolean): Handler
   {
@@ -366,7 +351,6 @@ export class Handler
     return this;
   }
 
-
   protected fixPath(path: string | null): string | null
   {
     if (!path)
@@ -374,7 +358,6 @@ export class Handler
 
     return this.fixPath2(path);
   }
-
 
   protected fixPath2(path: string): string
   {
@@ -389,7 +372,6 @@ export class Handler
     //console.debug("fixPath: b4", path, "after", _path);
     return _path;
   }
-
 
   addExcludeUrlPath(urlPath: string | null, cutExcludePath: boolean): Handler
   {
@@ -410,14 +392,13 @@ export class Handler
     return this;
   }
 
-
   handleRequest(request: Request): Promise<Response | null> | Response | null
   {
-    //console.debug("Handler: handleRequest");
+    // console.debug("Handler: handleRequest");
 
     if (!this.excludeUrlPath)
     {
-      //console.debug("Handler: handleRequest: empty handler, checking subhandlers...");
+      // console.debug("Handler: handleRequest: empty handler, checking subhandlers...");
       return this.checkSubhandlers(request);
     }
 
@@ -425,15 +406,14 @@ export class Handler
     const url = new URL(request.url);
     if (!url.pathname.startsWith(this.excludeUrlPath /* FIXME: this, but ctor guarantees that this var is set */))
     {
-    //console.debug(`Handler: path '${url.pathname}' does not start with '${this.excludeUrlPath}' - skip`);
+      // console.debug(`Handler: path '${url.pathname}' does not start with '${this.excludeUrlPath}' - skip`);
       return null; // so the next handler can be called, because the path does not match!
     }
 
     // path starts with requested path:
-  //console.debug(`Handler: path '${url.pathname}' starts with '${this.excludeUrlPath}' - checking subhandlers...`);
+    // console.debug(`Handler: path '${url.pathname}' starts with '${this.excludeUrlPath}' - checking subhandlers...`);
     return this.checkSubhandlers(request);
   }
-
 
   async checkSubhandlers(request: Request): Promise<Response | null>
   {
@@ -463,7 +443,6 @@ export class Handler
     //console.debug("Handler: checkSubhandlers: no subhandler matched...");
     return null;
   }
-
 
   newRequest(request: Request): Promise<Response | null> | Response | null
   {
@@ -501,29 +480,9 @@ export class HostHandler extends Handler
 {
   #hostname: string;
   #tls?: Tls;
-  // public handlers?: (Handler | HandlerFunction)[];
 
   get hostname(): string { return this.#hostname; }
   get tls() { return this.#tls; }
-
-
-  handleRequest(request: Request): Promise<Response | null> | Response | null
-  {
-    console.debug("HostHandler: handleRequest");
-
-    const hostHeader = request.headers.get("host")?.trim() ?? "";
-    const hostHeader2 = hostHeader.match(/^[^:]*/)?.[0] ?? hostHeader;
-
-    if (hostHeader2 !== this.#hostname)
-    {
-      console.debug("HostHandler: handleRequest: handler '" + this.#hostname + "' doesn't match '" + hostHeader2 + "'");
-      return null; // so the next handler can be called, because the host does not match!
-    }
-
-    console.debug("HostHandler: handleRequest: hostname match! checking subhandlers now");
-    return this.checkSubhandlers(request);
-  }
-
 
   constructor(hostname: string, options?: { tls?: Tls, handlers?: (Handler | HandlerFunction)[] }) // if keys undefined, gets cert itself
   {
@@ -535,19 +494,32 @@ export class HostHandler extends Handler
 
     if (!options?.tls)
     {
-      // TODO: use mw/acme (but only if hostname not an ip address)
+      // TODO: use mw/acme
     }
+  }
+
+  handleRequest(request: Request): Promise<Response | null> | Response | null
+  {
+    // console.debug("HostHandler: handleRequest");
+
+    const hostHeader = request.headers.get("host")?.trim() ?? "";
+    const hostHeader2 = hostHeader.match(/^[^:]*/)?.[0] ?? hostHeader;
+
+    if (hostHeader2 !== this.#hostname)
+    {
+      // console.debug("HostHandler: handleRequest: handler '" + this.#hostname + "' doesn't match '" + hostHeader2 + "'");
+      return null; // so the next handler can be called, because the host does not match!
+    }
+
+    // console.debug("HostHandler: handleRequest: hostname match! checking subhandlers now");
+    return this.checkSubhandlers(request);
   }
 }
 
 
-export class HostListener extends ListenerBase
+export class HttpsListener extends ListenerBase
 {
-  // private static listeners: HostListener[] = [];
-
-  private hosts: Record<string, HostHandler> = {};//{ hostname: string, host: Host;
-  // private listener: Deno.Listener;
-  // private run: boolean;
+  private hosts: Record<string, HostHandler> = {};
 
   public addHostHandler(hostHandler: HostHandler): void
   {
@@ -555,12 +527,8 @@ export class HostListener extends ListenerBase
     this.handlers.push(hostHandler);
   }
 
-  constructor(options?: { ip?: string, port?: number, hostHandlers?: HostHandler[] })
+  constructor(options?: { ip?: string, port?: number, hostHandlers?: HostHandler[], autoRedirectHttps?: boolean })
   {
-    // const key = `${ip}:${port}`;
-    // if (listenerManager.containsKey(key))
-    //   throw new Error("Listener: listener with ip + port already exists!");
-
     const _ip = options?.ip ?? "0.0.0.0";
     const _port = options?.port ?? 443;
 
@@ -571,9 +539,9 @@ export class HostListener extends ListenerBase
       // @ts-ignore api not ready yet, use private symbol
       [resolverSymbol]: (sni: string) =>
       {
-        const host = this.hosts[sni].tls;
-        console.log("host?", host);
-        return host!;
+        const host = this.hosts[sni];
+        console.log("host?", host?.hostname);
+        return host.tls!;
       },
     };
 
@@ -581,13 +549,21 @@ export class HostListener extends ListenerBase
     const listener = Deno.listenTls(<Deno.ListenTlsOptions & Deno.TlsCertifiedKeyConnectTls> tempOpts);
     console.log(`listening on ${_ip}:${_port} (https)`);
 
-    // HostListener.listeners.push(this);
-
-    //console.debug("new listener for", ip, port, this.isTls ? "with tls" : "no tls");
-
     super(listener, options?.hostHandlers);
-    console.log("???", this.handlers.length);
     options?.hostHandlers?.forEach((hostHandler) => this.hosts[hostHandler.hostname] = hostHandler);
+
+
+    if (options?.autoRedirectHttps)
+    {
+      new HttpListener(
+      {
+        ip: _ip,
+        handlers:
+        [
+          new HttpsRedirectHandler(),
+        ],
+      });
+    }
   }
 }
 
@@ -634,7 +610,6 @@ export class CheckHostnameHandler extends Handler
 {
   private hostname: string;
 
-
   constructor(hostname: string, options?: { handlers?: Handler[] })
   {
     super(options?.handlers);
@@ -642,19 +617,18 @@ export class CheckHostnameHandler extends Handler
     this.checkSubHandlers = false; // !! aka. negate - cancel, instead of checking subhandlers if they might match
   }
 
-
   handleRequest(request: Request): Promise<Response | null> | Response | null
   {
-    //console.debug("CheckHostnameHandler: handleRequest");
+    // console.debug("CheckHostnameHandler: handleRequest");
 
     const url = new URL(request.url);
     if (url.hostname !== this.hostname)
     {
-    //console.debug(`CheckHostnameHandler: handleRequest: hostname '${url.hostname}' does not match required hostname '${this.hostname}' - skipping`);
+      // console.debug(`CheckHostnameHandler: handleRequest: hostname '${url.hostname}' does not match required hostname '${this.hostname}' - skipping`);
       return null; // so the next handler can be called, because the path does not match!
     }
 
-    //console.debug("CheckHostnameHandler: match! checking subhandlers now");
+    // console.debug("CheckHostnameHandler: match! checking subhandlers now");
     return this.checkSubhandlers(request);
   }
 }
@@ -677,7 +651,6 @@ export class FileHandler extends Handler
 {
   private fsBasePath: string;
   private compression: boolean; // use whatever compression is best for particular file
-
 
   constructor(path: string, options?: { compression?: boolean })
   {
@@ -1378,7 +1351,7 @@ export function serveFiles(path: string,
 
 
 
-  new Listener({ ip: options?.ip || "127.0.0.1", port: options?.port || 6453, handlers: [ mainHandler ] });
+  new HttpListener({ ip: options?.ip || "127.0.0.1", port: options?.port || 6453, handlers: [ mainHandler ] });
 
 
   // if (!options?.tlsStore &&
