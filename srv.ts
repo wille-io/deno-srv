@@ -1,5 +1,5 @@
 import * as brotli from "https://deno.land/x/brotli@0.1.7/mod.ts";
-//import * as acme from "https://deno.land/x/acme@v0.2/acme.ts"
+import * as acme from "https://deno.land/x/acme@v0.4.1/acme.ts"
 import { decode } from "https://deno.land/std@0.192.0/encoding/base64.ts"; // basic auth
 import { typeByExtension } from "https://deno.land/std@0.200.0/media_types/type_by_extension.ts";
 import { db } from "https://deno.land/std@0.200.0/media_types/_db.ts"; // list of compressible content-types
@@ -189,12 +189,15 @@ export abstract class ListenerBase
   protected run: boolean;
   protected listener: Deno.Listener;
   protected handlers: (Handler | HandlerFunction)[];
+  public static hijackers: Record<string, acme.HttpRequestQueue> = {};
+  protected isTls: boolean = false;
 
-  constructor(listener: Deno.Listener, handlers?: (Handler | HandlerFunction)[])
+  constructor(listener: Deno.Listener, handlers?: (Handler | HandlerFunction)[], isTls?: boolean)
   {
     this.run = true;
     this.listener = listener;
     this.handlers = handlers ?? [];
+    this.isTls = !!isTls;
     this.acceptLoop();
   }
 
@@ -222,6 +225,47 @@ export abstract class ListenerBase
           {
             console.error("Request url length >= 1024");
             respondWith(getDefaultResponseFunction(414)(request)).catch(() => null);
+            continue;
+          }
+
+          let responded: boolean = false;
+          if (!this.isTls && Object.keys(ListenerBase.hijackers).length) // auto tls needs to hijack all http connections to answer acme http requests for validation
+          {
+            console.debug("hijackers");
+
+            for (const [ key, queue ] of Object.entries<acme.HttpRequestQueue>(ListenerBase.hijackers))
+            {
+              console.debug("hijacker", key);
+
+              if (queue.stopped)
+              {
+                delete ListenerBase.hijackers[key];
+                console.debug("hijacker deleted", key);
+                continue;
+              }
+
+              const response = await new Promise<Response | null>((resolver) =>
+              {
+                queue.push({ request, resolver });
+              });
+
+              console.debug("request response!", key, response);
+
+              if (response)
+              {
+                for (const header in defaultResponseHeaders)
+                {
+                  response.headers.set(header, defaultResponseHeaders[header]);
+                }
+                respondWith(response).catch(()=>{});
+                responded = true;
+                break;
+              }
+            }
+          }
+
+          if (responded)
+          {
             continue;
           }
 
@@ -305,15 +349,23 @@ export abstract class ListenerBase
 
 export class HttpListener extends ListenerBase // TODO: refactor!
 {
+  // private static httpListeners : Record<string, HttpListener> = {};
+
   constructor(options?: { ip?: string, port?: number, handlers?: (Handler | HandlerFunction)[] })
   {
     const _ip = options?.ip ?? "0.0.0.0";
     const _port = options?.port ?? 80;
 
-    const listener = Deno.listen({ hostname: _ip, port: _port });
+    const listener = Deno.listen({ hostname: _ip, port: _port }); // TODO: Deno.serve
     console.log(`listening on ${_ip}:${_port} (http)`);
 
-    super(listener, options?.handlers);
+    super(listener, options?.handlers, false);
+    // HttpListener.httpListeners[_ip+":"+_port] = this;
+  }
+
+  close(): void
+  {
+    super.close();
   }
 }
 
@@ -492,9 +544,130 @@ export class HostHandler extends Handler
     this.#hostname = hostname;
     this.#tls = options?.tls;
 
-    if (!options?.tls)
+    if (!options?.tls) // no cert given - request cert by using deno-acme
     {
-      // TODO: use mw/acme
+      this.requestCert();
+    }
+  }
+
+  private reschedule()
+  {
+    const timeout = 60;
+    setTimeout(() => this.requestCert(), timeout * 1000); // try again in n seconds
+    console.log("trying again in", timeout, "seconds");
+  }
+
+  private async requestCert()
+  {
+    console.debug("requestCert");
+
+
+    // load cert
+    try
+    {
+      const cert = await Deno.readTextFile(`./.deno-srv/certs/${this.#hostname}.crt`);
+      const key  = await Deno.readTextFile(`./.deno-srv/certs/${this.#hostname}.prv.pem`);
+
+      this.#tls = { cert, key };
+      console.debug("cert already available - loading from file - done!");
+      return;
+    }
+    catch(_e)
+    {
+      console.debug("cert doesn't exist - requesting!");
+    }
+
+
+    // load account
+    let accountPublicKey: string | null = null;
+    let accountPrivateKey: string | null= null;
+    try
+    {
+      // TODO: one account per acme directory
+      accountPublicKey = await Deno.readTextFile(`./.deno-srv/accountPublicKey.pem`);
+      accountPrivateKey = await Deno.readTextFile(`./.deno-srv/accountPrivateKey.pem`);
+
+      console.debug("acme account already available - loading from file - done!");
+      return;
+    }
+    catch(_e)
+    {
+      console.debug("acme account not available - creating a new one");
+    }
+
+    // TODO: wait until listener is ready
+    // TODO: check if cert is fresh enough
+    // TODO: create HttpListener on 0.0.0.0:80 if there isn't
+
+    const hijackerQueue = acme.createHttpRequestQueue();
+    ListenerBase.hijackers[this.#hostname] = hijackerQueue;
+
+    try
+    {
+      const result = await acme.getCertificateWithHttp(this.#hostname,
+        {
+          // acmeDirectoryUrl: "https://acme-staging-v02.api.letsencrypt.org/directory", // TODO: !
+          // TODO: all other options!
+          httpRequestQueue: hijackerQueue,
+          ...((accountPublicKey && accountPrivateKey) ? { pemAccountKeys: { publicKeyPEM: accountPublicKey, privateKeyPEM: accountPrivateKey } } : {}),
+        }
+      );
+
+
+      // save account
+      if (result.pemAccountKeys.publicKeyPEM && result.pemAccountKeys.privateKeyPEM)
+      {
+        try
+        {
+          await Deno.stat(`./.deno-srv/`);
+        }
+        catch(_e)
+        {
+          console.debug("./.deno-srv/ doesn't exist - creating dir");
+          await Deno.mkdir(`./.deno-srv/`, { recursive: true }) // uncaught
+        }
+
+        // TODO: one account per acme directory
+        await Deno.writeTextFile(`./.deno-srv/accountPublicKey.pem`, result.pemAccountKeys.publicKeyPEM); // uncaught
+        await Deno.writeTextFile(`./.deno-srv/accountPrivateKey.pem`, result.pemAccountKeys.privateKeyPEM); // uncaught
+      }
+
+
+      if (!result.domainCertificate.pemCertificate || !result.domainCertificate.pemPrivateKey)
+      {
+        throw new Error(`Failed to request certificate for '${this.#hostname}'`);
+      }
+
+
+      // save cert
+      const cert = result.domainCertificate.pemCertificate;
+      const key  = result.domainCertificate.pemPrivateKey;
+
+      try
+      {
+        await Deno.stat(`./.deno-srv/certs/`);
+      }
+      catch(_e)
+      {
+        console.debug("./.deno-srv/certs/ doesn't exist - creating dir");
+        await Deno.mkdir(`./.deno-srv/certs/`, { recursive: true }) // uncaught
+      }
+
+      await Deno.writeTextFile(`./.deno-srv/certs/${this.#hostname}.crt`, cert); // uncaught
+      await Deno.writeTextFile(`./.deno-srv/certs/${this.#hostname}.prv.pem`, key); // uncaught
+
+      this.#tls = { cert, key };
+      console.debug("DONE!!! tls ready!!! :)")
+    }
+    catch(e)
+    {
+      console.error(`HostHandler: requesting cert for host '${this.#hostname}' failed! ${Deno.inspect(e)}`);
+      this.reschedule();
+    }
+    finally
+    {
+      delete ListenerBase.hijackers[this.#hostname];
+      console.debug("deleted hijacker", this.#hostname);
     }
   }
 
@@ -549,7 +722,7 @@ export class HttpsListener extends ListenerBase
     const listener = Deno.listenTls(<Deno.ListenTlsOptions & Deno.TlsCertifiedKeyConnectTls> tempOpts);
     console.log(`listening on ${_ip}:${_port} (https)`);
 
-    super(listener, options?.hostHandlers);
+    super(listener, options?.hostHandlers, true);
     options?.hostHandlers?.forEach((hostHandler) => this.hosts[hostHandler.hostname] = hostHandler);
 
 

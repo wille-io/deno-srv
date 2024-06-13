@@ -1,5 +1,6 @@
 # deno-srv
 ... now uses Deno's new, yet currently unofficial, sni callback!
+... now comes with automatic tls certificate request!
 
 ## How to run the sni callback test
 - Checkout Deno's main branch (as currrent release v1.44.0 does not contain the sni callback yet)
