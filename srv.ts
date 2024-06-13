@@ -808,30 +808,55 @@ export class FileHandler extends Handler
 
     const fileUrl = `file://${this.fsBasePath}${path}`;
     //console.debug("FileHandler: handleRequest: fileUrl", fileUrl);
-    const filepath = fromFileUrl(fileUrl); //getPath(path);//`${this.fsBasePath}/${path}`;
+    let filepath = fromFileUrl(fileUrl); //getPath(path);//`${this.fsBasePath}/${path}`;
     //console.debug("FileHandler: handleRequest: filepath", filepath);
 
 
-    let file;
-    let stat;
-    try
+    async function openFile(filepath: string)
     {
-      stat = await Deno.stat(filepath);
+      const stat = await Deno.stat(filepath);
       if (!stat.isFile)
       {
         //console.debug("FileHandler: handleRequest: error opening requested file: not a file");
-        return this.response(request);
+        //return this.response(request);
+        throw new Error("error opening requested file: not a file");
       }
 
       //console.debug("FileHandler: handleRequest: stat.mtime", stat.mtime, "stat.mtime?.toUTCString()", stat.mtime?.toUTCString() || "???");
 
-      file = await Deno.open(filepath, { read: true });
+      const file = await Deno.open(filepath, { read: true });
+
+      return { stat, file };
+    }
+
+
+    let res;
+
+    try
+    {
+      res = await openFile(filepath);
     }
     catch(_e)
     {
-      //console.debug("FileHandler: handleRequest: error opening requested file:", _e);
-      return this.response(request);
+      if (!filepath.endsWith("/"))
+      {
+        //console.debug("FileHandler: handleRequest: error opening requested file:", _e);
+        return this.response(request);
+      }
+
+      try
+      {
+        filepath = filepath + "index.html";
+        res = await openFile(filepath);
+      }
+      catch(_e2)
+      {
+        //console.debug("FileHandler: handleRequest: error opening requested file after trying with 'index.html':", _e2);
+        return this.response(request);
+      }
     }
+
+    const { stat, file } = res;
 
 
     let fileSize: number | null = stat.size;
@@ -875,7 +900,7 @@ export class FileHandler extends Handler
     const contentType: string = hasExt ? typeByExtension(fileExt) ?? defaultContentType : defaultContentType;
 
     //const x = hasExt ? typeByExtension(fileExt) : "default";
-    //console.debug("FileHandler: handleRequest: contentType", contentType);
+    console.debug("FileHandler: handleRequest: contentType", contentType);
 
     // check if file is compressible
     const compressible = (contentType in db) ? db[contentType]?.compressible === true : false; // TODO: fix [] access
@@ -963,7 +988,7 @@ export class FileHandler extends Handler
 
     /* TODO: if `content-encoding` is not set, Deno's webserver (using the hyper crate) will attempt to compress the body itself
     PR with Response.noCompress and op_http_write_headers with noCompress */
-    const res = new Response(readable,
+    const resp = new Response(readable,
       {
         status: isPartial ? 206 : 200,
         headers:
@@ -979,7 +1004,7 @@ export class FileHandler extends Handler
 
     //console.debug("FileHandler: handleRequest: response", res);
 
-    return res;
+    return resp;
   }
 }
 
