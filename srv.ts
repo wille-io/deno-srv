@@ -1,24 +1,23 @@
 import * as brotli from "https://deno.land/x/brotli@0.1.7/mod.ts";
 import * as acme from "https://deno.land/x/acme@v0.4.1/acme.ts"
-import { decode } from "https://deno.land/std@0.192.0/encoding/base64.ts"; // basic auth
+import { decode as decodeBase64 } from "https://deno.land/std@0.192.0/encoding/base64.ts"; // basic auth
 import { typeByExtension } from "https://deno.land/std@0.200.0/media_types/type_by_extension.ts";
 import { db } from "https://deno.land/std@0.200.0/media_types/_db.ts"; // list of compressible content-types
 import { extname } from "https://deno.land/std@0.200.0/path/extname.ts";
 import { fromFileUrl } from "https://deno.land/std@0.200.0/path/from_file_url.ts";
 import { resolve } from "https://deno.land/std@0.200.0/path/resolve.ts";
-
+import { decodeHex } from "jsr:@std/encoding/hex"; // basic auth
 
 /*
   There's currently a DoS bug in rustls-tokio-stream: https://github.com/denoland/rustls-tokio-stream/pull/28
 */
 
-
 /*
   TODO: etag, x-forwarded-*, set-header handler, keep alive?, deno metrics handler, system metrics handler, system info handler,
   browse handler, reload config on signal, reload config (without killing listeners?), 431, 503 handler with on/off url,
   503 via system signal, 504 in proxy handler, etag with file size limit, etag with hashed last modified timestamp?,
-  path matching with wildcards, add headers handler, rate limiter, update checker, auto-updater?, cors handler, 
-  zstd compression, HSTS, add `charset=utf-8` to non-binary content-types, vary accept-encoding,
+  path matching with wildcards, add headers handler, rate limiter, update checker, auto-updater?, cors handler,
+  zstd compression, HSTS, add `charset=utf-8` to non-binary content-types, vary accept-encoding
 */
 
 /*
@@ -379,14 +378,21 @@ export class Handler
     this.handlers = handlers || [];
   }
 
-  addHandler(handler: Handler | HandlerFunction) // adds a sub handler!
+  addHandler(handler: Handler | HandlerFunction, prepend?: boolean) // adds a sub handler!
   {
     if (handler instanceof Handler && this.excludeUrlPath)
     {
       handler.addExcludeUrlPath(this.excludeUrlPath, this.cutExcludePath);
     }
 
-    this.handlers.push(handler);
+    if (prepend)
+    {
+      this.handlers.unshift(handler);
+    }
+    else
+    {
+      this.handlers.push(handler);
+    }
   }
 
   setCutExcludePath(cutExcludePath: boolean): Handler
@@ -778,12 +784,12 @@ export class HttpsListener extends ListenerBase
 
 export class CheckHostnameHandler extends Handler
 {
-  private hostname: string;
+  private hostnames: string[];
 
-  constructor(hostname: string, options?: { handlers?: Handler[] })
+  constructor(hostname: string | string[], options?: { handlers?: Handler[] })
   {
     super(options?.handlers);
-    this.hostname = hostname;
+    this.hostnames = Array.isArray(hostname) ? hostname : [hostname];
     this.checkSubHandlers = false; // !! aka. negate - cancel, instead of checking subhandlers if they might match
   }
 
@@ -792,7 +798,7 @@ export class CheckHostnameHandler extends Handler
     // console.debug("CheckHostnameHandler: handleRequest");
 
     const url = new URL(request.url);
-    if (url.hostname !== this.hostname)
+    if (!this.hostnames.includes(url.hostname))
     {
       // console.debug(`CheckHostnameHandler: handleRequest: hostname '${url.hostname}' does not match required hostname '${this.hostname}' - skipping`);
       return null; // so the next handler can be called, because the path does not match!
@@ -822,9 +828,9 @@ export class FileHandler extends Handler
   private fsBasePath: string;
   private compression: boolean; // use whatever compression is best for particular file
 
-  constructor(path: string, options?: { compression?: boolean })
+  constructor(path: string, options?: { compression?: boolean, handlers?: (Handler | HandlerFunction)[] })
   {
-    super();
+    super(options?.handlers);
     this.fsBasePath = resolve(path);
     //console.debug("FileHandler: fsBasePath", this.fsBasePath);
 
@@ -1223,18 +1229,39 @@ export class ReverseProxyHandler extends Handler
   }
 
 
-  async handleRequest(request: Request): Promise<Response | null>
+  async handleRequest(request: Request): Promise<Response | null> // TODO: websockets
   {
+    // console.debug("ReverseProxyHandler", request);
+
     const r = request;
-    //console.debug("ReverseProxyHandler", request);
+
+    const headers: Record<string, string> = {};
+    r.headers.forEach((val, key) => 
+      {
+        if (["authorization"].includes(key)) // do not forward some header
+        {
+          return;
+        }
+        headers[key] = val;
+      });
+
+    const url = new URL(request.url);
+
+    // console.debug("ReverseProxyHandler: headers", request.headers);
 
     let resp;
     try
     {
-      resp = await fetch(this.connectTo,  // TODO: timeout + 504 response
+      resp = await fetch(new URL(url.pathname + url.search, this.connectTo),  // TODO: timeout + 504 response
         {
           method: r.method,
-          headers: r.headers, // TODO: x-forwarded-*
+          headers:
+          {
+            // TODO: ? "X-Forwarded-For": ...,
+            "X-Forwarded-Host": url.hostname,
+            "X-Forwarded-Proto": url.protocol,
+            ...headers
+          },
           body: r.body,
         });
     }
@@ -1257,7 +1284,7 @@ export class ReverseProxyHandler extends Handler
 
 export class RequestLoggerHandler extends Handler
 {
-  private outputFn: (request: Request) => void;
+  private outputFn: (request: Request) => void | Promise<void>;
   protected toTextFn: (request: Request) => string;
 
   constructor(output?: "stdout" | "stderr" | { filename: string } | {(r: Request): void} )
@@ -1309,7 +1336,12 @@ export class RequestLoggerHandler extends Handler
 
   handleRequest(request: Request): null
   {
-    this.outputFn(request);
+    // const ret =
+    this.outputFn(request); // maybe it's better to have this unhandeled as this is quite a critical error
+    // if (ret instanceof Promise)
+    // {
+    //   ret.catch((reason) => ...);
+    // }
     return null;
   }
 }
@@ -1353,24 +1385,43 @@ export class JournaldRequestLoggerHandler extends RequestLoggerHandler
 export class BasicAuthHandler extends Handler
 {
   private username: string;
-  private password: string; // TODO: optional: hashed
+  private password?: Uint8Array; // sha256 encoded
   private realm: string;
 
 
-  constructor(username: string, password: string, realm: string,
+  constructor(username: string, password: { raw: string } | { sha256Hex: string }, realm: string,
     options?: { handlers?: Handler[] })
   {
+    if ("raw" in password && "sha256Hex" in password)
+    {
+      throw new Error("BasicAuthHandler: you need to set at least and at most one of password.raw or password.sha256Hex!");
+    }
+
     super(options?.handlers);
+
+    if ("raw" in password && password.raw)
+    {
+      const enc = new TextEncoder().encode(password.raw);
+      crypto.subtle.digest("SHA-256", enc).then((arrayBuffer) => this.password = new Uint8Array(arrayBuffer)); // TODO: ctor + async = :(
+    }
+    else if ("sha256Hex" in password && password.sha256Hex)
+    {
+      this.password = decodeHex(password.sha256Hex);
+    }
+    else
+    {
+      throw new Error("BasicAuthHandler: you need to set at least and at most one of password.raw or password.base64!");
+    }
+
     //console.debug("BasicAuthHandler");
     this.checkSubHandlers = true; // DO (!) check subhandlers
 
     this.username = username;
-    this.password = password;
     this.realm = realm;
   }
 
 
-  isAuthorized(req: Request): boolean
+  async isAuthorized(req: Request): Promise<boolean>
   {
     const authHeader = req.headers.get("Authorization");
     const basicStr = "Basic ";
@@ -1379,22 +1430,46 @@ export class BasicAuthHandler extends Handler
       return false;
 
     const encodedCredentials = authHeader.substring(basicStr.length);
-    const decodedCredentials = new TextDecoder().decode(decode(encodedCredentials));
+    const decodedCredentials = new TextDecoder().decode(decodeBase64(encodedCredentials));
 
     const [username, password] = decodedCredentials.split(":");
 
+    const pwEnc = new TextEncoder().encode(password);
+    const pwSha256 = new Uint8Array(await crypto.subtle.digest("SHA-256", pwEnc)); // encoded => sha256
+
+    // console.log("username", username, "vs", this.username, "- password (sha256)", encodeHex(pwSha256), "vs", encodeHex(this.password || ""), "?", !!this.password);
     //console.debug("BasicAuthHandler:", username, password, this.username, this.password);
 
-    if (username === this.username && password === this.password)
+    function arraysEqual(arr1: Uint8Array, arr2: Uint8Array)
+    {
+      if (arr1.length !== arr2.length)
+      {
+        return false;
+      }
+      for (let i = 0; i < arr1.length; i++)
+      {
+        if (arr1[i] !== arr2[i])
+        {
+          return false;
+        }
+      }
       return true;
+    }
 
+    if (username === this.username && this.password && arraysEqual(pwSha256, this.password))
+    {
+      // console.debug("authorized!");
+      return true;
+    }
+
+    // console.debug("not authorized!");
     return false;
   }
 
 
-  handleRequest(request: Request): Response | null
+  async handleRequest(request: Request): Promise<Response | null>
   {
-    if (!this.isAuthorized(request))
+    if (!await this.isAuthorized(request))
     {
       //console.debug("unauthorized");
       const r = getDefaultResponseFunction(401)(request);
