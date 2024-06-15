@@ -588,7 +588,6 @@ export class HostHandler extends Handler
       accountPrivateKey = await Deno.readTextFile(`./.deno-srv/accountPrivateKey.pem`);
 
       console.debug("acme account already available - loading from file - done!");
-      return;
     }
     catch(_e)
     {
