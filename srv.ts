@@ -9,8 +9,7 @@ import { resolve } from "https://deno.land/std@0.200.0/path/resolve.ts";
 
 
 /*
-  For deno-srv to work with multiple hosts on one tls listener, this PR needs to be accepted:
-  https://github.com/denoland/deno/pull/20237
+  There's currently a DoS bug in rustls-tokio-stream: https://github.com/denoland/rustls-tokio-stream/pull/28
 */
 
 
@@ -18,10 +17,8 @@ import { resolve } from "https://deno.land/std@0.200.0/path/resolve.ts";
   TODO: etag, x-forwarded-*, set-header handler, keep alive?, deno metrics handler, system metrics handler, system info handler,
   browse handler, reload config on signal, reload config (without killing listeners?), 431, 503 handler with on/off url,
   503 via system signal, 504 in proxy handler, etag with file size limit, etag with hashed last modified timestamp?,
-  path matching with wildcards,
-  HttpsListener which is also listening on port 80 and redirects to port 443 (if set to 443) with status code 301 (permanently moved),
-  add headers handler, rate limiter, update checker, auto-updater?, cors handler, zstd compression, HSTS,
-  add `charset=utf-8` to non-binary content-types, vary accept-encoding,
+  path matching with wildcards, add headers handler, rate limiter, update checker, auto-updater?, cors handler, 
+  zstd compression, HSTS, add `charset=utf-8` to non-binary content-types, vary accept-encoding,
 */
 
 /*
@@ -209,7 +206,7 @@ export abstract class ListenerBase
 
   async accept(conn: Deno.Conn)
   {
-    console.debug("new connection", conn, conn.remoteAddr);
+    // console.debug("new connection", conn, conn.remoteAddr);
 
     try
     {
@@ -219,7 +216,7 @@ export abstract class ListenerBase
       {
         try
         {
-          console.debug("new request from connection", request);
+          // console.debug("new request from connection", request);
 
           if (request.url.length >= 1024)
           {
@@ -231,16 +228,16 @@ export abstract class ListenerBase
           let responded: boolean = false;
           if (!this.isTls && Object.keys(ListenerBase.hijackers).length) // auto tls needs to hijack all http connections to answer acme http requests for validation
           {
-            console.debug("hijackers");
+            // console.debug("hijackers");
 
             for (const [ key, queue ] of Object.entries<acme.HttpRequestQueue>(ListenerBase.hijackers))
             {
-              console.debug("hijacker", key);
+              // console.debug("hijacker", key);
 
               if (queue.stopped)
               {
                 delete ListenerBase.hijackers[key];
-                console.debug("hijacker deleted", key);
+                // console.debug("hijacker deleted", key);
                 continue;
               }
 
@@ -249,7 +246,7 @@ export abstract class ListenerBase
                 queue.push({ request, resolver });
               });
 
-              console.debug("request response!", key, response);
+              // console.debug("request response!", key, response);
 
               if (response)
               {
@@ -550,16 +547,17 @@ export class HostHandler extends Handler
     }
   }
 
-  private reschedule()
+  private reschedule(currentTry: number)
   {
-    const timeout = 60;
-    setTimeout(() => this.requestCert(), timeout * 1000); // try again in n seconds
-    console.log("trying again in", timeout, "seconds");
+    const timeouts = [ 60, 10 * 60, 100 * 60, 86400 ]; // see https://letsencrypt.org/docs/integration-guide/#retrying-failures
+    const timeout = (currentTry >= timeouts.length) ? timeouts[timeouts.length - 1] : timeouts[currentTry];
+    setTimeout(() => this.requestCert(currentTry), timeout * 1000); // try again in n seconds
+    console.log("trying again in", timeout, "seconds (retry #", currentTry, ")");
   }
 
-  private async requestCert()
+  private async requestCert(currentTry?: number)
   {
-    console.debug("requestCert");
+    console.debug("requestCert - try", currentTry);
 
 
     // load cert
@@ -569,12 +567,12 @@ export class HostHandler extends Handler
       const key  = await Deno.readTextFile(`./.deno-srv/certs/${this.#hostname}.prv.pem`);
 
       this.#tls = { cert, key };
-      console.debug("cert already available - loading from file - done!");
+      // console.debug("cert already available - loading from file - done!");
       return;
     }
     catch(_e)
     {
-      console.debug("cert doesn't exist - requesting!");
+      // console.debug("cert doesn't exist - requesting!");
     }
 
 
@@ -587,11 +585,11 @@ export class HostHandler extends Handler
       accountPublicKey = await Deno.readTextFile(`./.deno-srv/accountPublicKey.pem`);
       accountPrivateKey = await Deno.readTextFile(`./.deno-srv/accountPrivateKey.pem`);
 
-      console.debug("acme account already available - loading from file - done!");
+      // console.debug("acme account already available - loading from file - done!");
     }
     catch(_e)
     {
-      console.debug("acme account not available - creating a new one");
+      // console.debug("acme account not available - creating a new one");
     }
 
     // TODO: wait until listener is ready
@@ -648,7 +646,7 @@ export class HostHandler extends Handler
       }
       catch(_e)
       {
-        console.debug("./.deno-srv/certs/ doesn't exist - creating dir");
+        // console.debug("./.deno-srv/certs/ doesn't exist - creating dir");
         await Deno.mkdir(`./.deno-srv/certs/`, { recursive: true }) // uncaught
       }
 
@@ -656,17 +654,17 @@ export class HostHandler extends Handler
       await Deno.writeTextFile(`./.deno-srv/certs/${this.#hostname}.prv.pem`, key); // uncaught
 
       this.#tls = { cert, key };
-      console.debug("DONE!!! tls ready!!! :)")
+      // console.debug("DONE!!! tls ready!!! :)")
     }
     catch(e)
     {
       console.error(`HostHandler: requesting cert for host '${this.#hostname}' failed! ${Deno.inspect(e)}`);
-      this.reschedule();
+      this.reschedule(currentTry != undefined ? currentTry++ : 0);
     }
     finally
     {
       delete ListenerBase.hijackers[this.#hostname];
-      console.debug("deleted hijacker", this.#hostname);
+      // console.debug("deleted hijacker", this.#hostname);
     }
   }
 
@@ -712,7 +710,7 @@ export class HttpsListener extends ListenerBase
       [resolverSymbol]: (sni: string) =>
       {
         const host = this.hosts[sni];
-        console.log("host?", host?.hostname);
+        // console.log("host?", host?.hostname);
         return host.tls!;
       },
     };
@@ -727,7 +725,7 @@ export class HttpsListener extends ListenerBase
 
     if (options?.autoRedirectHttps)
     {
-      new HttpListener(
+      new HttpListener( // TODO: stop this listener on stop(), too
       {
         ip: _ip,
         handlers:
@@ -927,16 +925,16 @@ export class FileHandler extends Handler
                 const chunkSize   = chunk.byteLength;
                 const chunkEnd    = this.current + chunkSize;
 
-                //console.debug("SkipBytesTransformStream: chunk:", "end", this.end, "chunkEnd", chunkEnd, "chunkSize", chunkSize);
+                // console.debug("SkipBytesTransformStream: chunk:", "end", this.end, "chunkEnd", chunkEnd, "chunkSize", chunkSize);
                 if (this.end > chunkEnd) // more data available than the chunk holds - enqueue the whole chunk
                 {
-                  //console.debug("SkipBytesTransformStream: enqueuing WHOLE chunk");
+                  // console.debug("SkipBytesTransformStream: enqueuing WHOLE chunk");
                   controller.enqueue(chunk);
                   this.current += chunkSize;
                   return;
                 } // TODO: don't branch on more likely condition for performance reasons - check how V8 handles this
 
-                //console.debug("SkipBytesTransformStream: enqueuing chunk partly:", (this.end - chunkStart), chunk);
+                // console.debug("SkipBytesTransformStream: enqueuing chunk partly:", (this.end - chunkStart), chunk);
                 controller.enqueue(chunk.subarray(0, (this.end - chunkStart)));
                 controller.terminate();
               },
@@ -950,7 +948,7 @@ export class FileHandler extends Handler
 
       newFileSize = rangeEnd - rangeStart;
       newReadable = file.readable.pipeThrough(new SkipBytesTransformStream(rangeStart, rangeEnd));
-      //console.debug("FileHandler: processRange: piping to SkipBytesTransformStream");
+      // console.debug("FileHandler: processRange: piping to SkipBytesTransformStream");
     }
     else
     {
@@ -1072,7 +1070,7 @@ export class FileHandler extends Handler
     const contentType: string = hasExt ? typeByExtension(fileExt) ?? defaultContentType : defaultContentType;
 
     //const x = hasExt ? typeByExtension(fileExt) : "default";
-    console.debug("FileHandler: handleRequest: contentType", contentType);
+    // console.debug("FileHandler: handleRequest: contentType", contentType);
 
     // check if file is compressible
     const compressible = (contentType in db) ? db[contentType]?.compressible === true : false; // TODO: fix [] access
@@ -1424,7 +1422,7 @@ export class HttpsRedirectHandler extends Handler
     const url = new URL(request.url);
     url.protocol = "https";
     url.port = "443";
-    console.debug("redir to", url.toString());
+    // console.debug("redir to", url.toString());
 
     return new Response(null,
       {
