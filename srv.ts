@@ -419,8 +419,8 @@ export class Handler
     let _path = path;
     if (!_path.startsWith("/"))
       _path = "/" + _path;
-    if (!_path.endsWith("/"))
-      _path += "/";
+    // if (!_path.endsWith("/"))
+    //   _path += "/";
 
     _path = _path.replaceAll("//", "/");
 
@@ -813,7 +813,7 @@ export class CheckHostnameHandler extends Handler
 export class CheckPathHandler extends Handler
 {
   constructor(path: string,
-    options?: { cutExcludePath?: boolean, handlerFunction?: HandlerFunction, handlers?: Handler[] })
+    options?: { cutExcludePath?: boolean, handlerFunction?: HandlerFunction, handlers?: (Handler | HandlerFunction)[] })
   {
     super(options?.handlers);
     this.checkSubHandlers = false; // !!
@@ -1217,17 +1217,17 @@ export class ReverseProxyHandler extends Handler
 {
   private connectTo: string;
   private a503Response: ((r: Request) => Response);
+  private addHeaders?: Record<string, string>;
 
-
-  constructor(connectTo: string, options?: { a503Response: ((r: Request) => Response) })
+  constructor(connectTo: string, options?: { addHeaders?: Record<string, string>, a503Response?: ((r: Request) => Response) })
   {
     super();
     this.connectTo = connectTo;
     this.checkSubHandlers = false; // always either responds or fails
     this.a503Response = options?.a503Response || getDefaultResponseFunction(503); //defaultResponseFunctions[503] || function (_r: Request) { return new Response("503", { status: 503 }) };
+    this.addHeaders = options?.addHeaders;
     //console.debug("ReverseProxyHandler", connectTo);
   }
-
 
   async handleRequest(request: Request): Promise<Response | null> // TODO: websockets
   {
@@ -1252,15 +1252,18 @@ export class ReverseProxyHandler extends Handler
     let resp;
     try
     {
-      resp = await fetch(new URL(url.pathname + url.search, this.connectTo),  // TODO: timeout + 504 response
+      const targetUrl = new URL(url.pathname + url.search, this.connectTo);
+      // console.debug("targetUrl", targetUrl.toString());
+      resp = await fetch(targetUrl.toString(), // TODO: timeout + 504 response
         {
           method: r.method,
           headers:
           {
             // TODO: ? "X-Forwarded-For": ...,
             "X-Forwarded-Host": url.hostname,
-            "X-Forwarded-Proto": url.protocol,
-            ...headers
+            "X-Forwarded-Proto": targetUrl.protocol,
+            ...headers,
+            ...this.addHeaders,
           },
           body: r.body,
         });
@@ -1277,7 +1280,8 @@ export class ReverseProxyHandler extends Handler
       {
         status: resp.status,
         headers: resp.headers,
-      });
+      }
+    );
   }
 }
 
@@ -1538,7 +1542,7 @@ export class RedirectHandler extends Handler
   handleRequest(request: Request): Response | null
   {
     const url = new URL(request.url);
-    if (this.matchesPath && !url.pathname.startsWith(this.matchesPath))
+    if (this.matchesPath && url.pathname !== this.matchesPath)
       return null; // path doesn't match - continue
 
     return new Response(null,
