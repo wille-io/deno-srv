@@ -1,11 +1,51 @@
 # deno-srv
-... now uses Deno's new, yet currently unofficial, sni callback!
-... now comes with automatic tls certificate request!
+**World's first** Deno webserver for multiple hosts.
+
+- Uses Deno's new, yet currently unofficial, sni callback!
+- Comes with automatic tls certificate request! (while auto-renew isn't there, yet)
+
+Configure your webserver in a language we all know and love: TypeScript.
+
+Example on how to host your own, automatically Https secured static website with automatic Http-to-Https redirect:
+```typescript
+import * as Srv from "https://deno.land/x/srv@v0.3.0/srv.ts"
+
+new Srv.HttpsListener(
+  {
+    autoRedirectHttps: true,
+    hostHandlers:
+    [
+      new Srv.HostHandler("example.com",
+        {
+          handlers:
+          [
+            new Srv.FileHandler("/var/www/"),
+          ]
+        }
+      ),
+    ]
+  }
+);
+```
+
+**Warning**: There's currently a DoS bug in rustls-tokio-stream which makes this project **not production ready**: https://github.com/denoland/rustls-tokio-stream/pull/28
+
+If you somehow still want to use this webserver in production (as I already do!), you have to build Deno with the rustls-tokio-stream fix from here: https://github.com/wille-io/rustls-tokio-stream on branch 'cancel-accept-on-client-disconnect'.
+
+## Features
+- Automatically get one certificate per host
+- Fileserver
+- Reverse Proxy
+- Request Logging
+- Basic Auth
+- Redirect
+- Mark requests as forbidden
+- Add a default response function for unhandeled requests
+- Add default response headers to all responses
 
 ## How to run the sni callback test
-- Checkout Deno's main branch (as currrent release v1.44.0 does not contain the sni callback yet)
-- [Build Deno as described here](https://docs.deno.com/runtime/manual/references/contributing/building_from_source#building-deno)
-- `<path to deno sources>/target/debug/deno run -A ./config.ts`
+- Use Deno with version >= v1.43.3
+- `deno run -A ./config.ts`
 - Finally visit https://localhost:8008/test.txt
   - Note: You will receive a warning about an insecure certificate (because the certificate for 'localhost' is obviously self-signed)
 - Now visit https://127.0.0.1:8008/test.txt, which will give you an error as '127.0.0.1' non-sni connections are currently not handled properly and there is no certificate for the host '127.0.0.1'
