@@ -1,12 +1,12 @@
 # deno-srv
-**World's first** Deno webserver for multiple hosts.
+**World's first** Deno web server for multiple hosts.
 
 - Uses Deno's new, yet currently unofficial, sni callback!
 - Comes with automatic tls certificate request! (while auto-renew isn't there, yet)
 
-Configure your webserver in a language we all know and love: TypeScript.
+Configure your web server in a language we all know and love: TypeScript.
 
-Example on how to host your own, automatically Https secured static website with automatic Http-to-Https redirect:
+Example on how to host your own, automatically https secured static website with automatic http-to-https redirect:
 ```typescript
 import * as Srv from "https://deno.land/x/srv@v0.3.0/srv.ts"
 
@@ -28,9 +28,11 @@ new Srv.HttpsListener(
 );
 ```
 
-**Warning**: There's currently a DoS bug in rustls-tokio-stream which makes this project **not production ready**: https://github.com/denoland/rustls-tokio-stream/pull/28
+Warning: This project is in active development (as of 25-Jun-24) and its api is subject to change at any time without prior warning.
 
-If you somehow still want to use this webserver in production (as I already do!), you have to build Deno with the rustls-tokio-stream fix from here: https://github.com/wille-io/rustls-tokio-stream on branch 'cancel-accept-on-client-disconnect'.
+**Warning**: There's currently a DoS bug in rustls-tokio-stream which unfortunately makes this project **not production ready**: https://github.com/denoland/rustls-tokio-stream/pull/28
+
+If you somehow still want to use this web server in production (as I already do!), you have to build Deno with the rustls-tokio-stream fix from here: https://github.com/wille-io/rustls-tokio-stream on branch 'cancel-accept-on-client-disconnect'.
 
 ## Features
 - Automatically get one certificate per host
@@ -42,6 +44,7 @@ If you somehow still want to use this webserver in production (as I already do!)
 - Mark requests as forbidden
 - Add a default response function for unhandeled requests
 - Add default response headers to all responses
+- ... and many more
 
 ## How to run the sni callback test
 - Use Deno with version >= v1.43.3
