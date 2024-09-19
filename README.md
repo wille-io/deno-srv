@@ -2,7 +2,7 @@
 **World's first** Deno web server for multiple hosts.
 
 - Uses Deno's new, yet currently unofficial, sni callback!
-- Comes with automatic tls certificate request! (while auto-renew isn't there, yet)
+- Comes with automatic tls certificate request! (while auto-renew isn't there, yet - but will be included in the next release!)
 
 Configure your web server in a language we all know and love: TypeScript.
 
@@ -28,16 +28,14 @@ new Srv.HttpsListener(
 );
 ```
 
-Warning: This project is in active development (as of 25-Jun-24) and its api is subject to change at any time without prior warning.
+Warning: This project is in active development (as of 19-Sep-24) and its api is subject to change at any time without prior warning.
 
-**Warning**: There's currently a DoS bug in rustls-tokio-stream which unfortunately makes this project **not production ready**: https://github.com/denoland/rustls-tokio-stream/pull/28
-
-If you somehow still want to use this web server in production (as I already do!), you have to build Deno with the rustls-tokio-stream fix from here: https://github.com/wille-io/rustls-tokio-stream on branch 'cancel-accept-on-client-disconnect'.
+**Update:** Deno v1.45.3 and up do not contain the DoS bug from rustls-tokio-stream anymore!
 
 ## Features
 - Automatically get one certificate per host
 - Fileserver
-- Reverse Proxy
+- Reverse Proxy (socket.io websockets work, pure websockets do not yet)
 - Request Logging
 - Basic Auth
 - Redirect
@@ -46,7 +44,8 @@ If you somehow still want to use this web server in production (as I already do!
 - Add default response headers to all responses
 - ... and many more
 
-## How to run the sni callback test
+## For people interested in Deno's new sni callback
+### How to run the sni callback test
 - Use Deno with version >= v1.43.3
 - `deno run -A ./config.ts`
 - Finally visit https://localhost:8008/test.txt
